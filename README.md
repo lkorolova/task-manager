@@ -1,6 +1,6 @@
 # Task Manager API
 
-A REST API for managing tasks, built with Node.js and no frameworks.
+A REST API for managing tasks, built with Node.js and TypeScript — no frameworks.
 
 ## Requirements
 
@@ -9,26 +9,32 @@ A REST API for managing tasks, built with Node.js and no frameworks.
 ## Setup
 
 ```bash
-# Install dependencies (none required — built on Node.js core modules only)
 git clone <repo-url>
 cd task-manager
+npm install
 
-# Start the server
+# Development (auto-restart on file change)
+npm run dev
+
+# Production (compile + run)
+npm run build
 npm start
 ```
 
 The server listens on `http://localhost:3000` by default. Set the `PORT` environment variable to use a different port:
 
 ```bash
-PORT=8080 npm start
+PORT=8080 npm run dev
 ```
 
 ## npm Scripts
 
 | Script | Description |
 |--------|-------------|
-| `npm start` | Start the server with `--watch` (auto-restart on file change) |
-| `npm run dev` | Same as `start` |
+| `npm run dev` | Start with `tsx watch` (auto-restart on file change) |
+| `npm start` | Run compiled JS from `dist/` |
+| `npm run build` | Compile TypeScript with `tsc` |
+| `npm run cli` | Run CLI tool via `tsx` |
 
 ## API Endpoints
 
@@ -67,42 +73,45 @@ PORT=8080 npm start
 ## CLI
 
 ```bash
-node cli.js list                        # List all tasks
-node cli.js add "Task title"            # Create a task
-node cli.js delete <id>                 # Delete a task by ID
-node cli.js export <filename>           # Download CSV export to a local file
+npx tsx cli.ts list                        # List all tasks
+npx tsx cli.ts add "Task title"            # Create a task
+npx tsx cli.ts delete <id>                 # Delete a task by ID
+npx tsx cli.ts export <filename>           # Download CSV export to a local file
 ```
 
 ## Utilities
 
 ```bash
-node utils/copy-file.js <src> <dest>    # Copy a file using streams
+npx tsx utils/copy-file.ts <src> <dest>    # Copy a file using streams
 ```
 
 ## Project Structure
 
 ```
 src/
-  index.js              # Entry point: audit log + server bootstrap
-  server.js             # HTTP server creation + request dispatch
-  router.js             # Route map, matchRoute, getAllowedMethods
+  index.ts              # Entry point: audit log + server bootstrap
+  server.ts             # HTTP server creation + request dispatch
+  router.ts             # Route map, matchRoute, getAllowedMethods
   handlers/
-    route-handlers.js   # One named function per route
+    route-handlers.ts   # One named function per route
   services/
-    task.service.js     # tasks array, loadTasks, saveTasks
+    task.service.ts     # tasks array, loadTasks, saveTasks
   events/
-    task-event-bus.js   # Custom EventEmitter subclass + singleton
+    task-event-bus.ts   # Typed EventEmitter subclass + singleton
+  types/
+    task.ts             # Task interface, RouteHandler, TaskService types
   utils/
-    logger.js           # info / warn / error with timestamps
-    id-generator.js     # generateId() via crypto.randomUUID()
-    http.js             # sendJson, parseJsonBody
-    csv.js              # parseCsvLine, escapeCsv, CSV_COLUMNS
-data/                   # Created locally on — not committed to the repo
+    logger.ts           # info / warn / error with timestamps
+    id-generator.ts     # generateId() via crypto.randomUUID()
+    http.ts             # sendJson, parseJsonBody
+    csv.ts              # parseCsvLine, escapeCsv, CSV_COLUMNS
+data/                   # Created locally — not committed to the repo
   tasks.json            # Persisted tasks
   audit.log             # Append-only event log
-cli.js                  # CLI tool
+cli.ts                  # CLI tool
 utils/
-  copy-file.js          # Stream-based file copy utility
+  copy-file.ts          # Stream-based file copy utility
+tsconfig.json           # TypeScript configuration
 ```
 
 ## Data Persistence
