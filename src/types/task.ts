@@ -11,10 +11,6 @@ export interface Task {
     updatedAt: string;
 };
 
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
-
-export type RouteHandler = (props: TaskService) => void | Promise<void>;
-
 export type TaskService = {
     req: IncomingMessage, 
     res: ServerResponse, 
