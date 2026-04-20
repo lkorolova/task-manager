@@ -18,7 +18,7 @@ const auditFileStream = createWriteStream(AUDIT_FILE, {
 
 const audit = new Writable({
     objectMode: true,
-    write(event, _encoding, callback) {
+    write(event: { event: string; payload: unknown }, _encoding: BufferEncoding, callback: (error?: Error | null) => void) {
         const line = JSON.stringify({
             at: new Date().toISOString(),
             event: event.event,

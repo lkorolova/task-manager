@@ -6,18 +6,35 @@ import { sendJson, parseJsonBody } from '../utils/http.js';
 import { taskEventBus } from '../events/task-event-bus.js';
 import { tasks, saveTasks } from '../services/task.service.js';
 import { parseCsvLine, escapeCsv, CSV_COLUMNS } from '../utils/csv.js';
+import type { Task, TaskService } from '../types/task.js';
 
-export function getTasks(_req, res) {
+function isValidTaskInput(value: unknown): value is Pick<Task, 'title' | 'description' | 'status'> {
+    if (typeof value !== 'object' || value === null) return false;
+    const v = value as Record<string, unknown>;
+    return typeof v.title === 'string';
+}
+
+function isValidTaskUpdate(value: unknown): value is Partial<Pick<Task, 'title' | 'description' | 'status'>> {
+    if (typeof value !== 'object' || value === null) return false;
+    const v = value as Record<string, unknown>;
+    return (['title', 'description', 'status'] as const).every(
+        (key) => !(key in v) || typeof v[key] === 'string'
+    );
+}
+
+export function getTasks({res}: TaskService): void  {
     sendJson(res, 200, tasks);
 }
 
-export async function createTask(req, res) {
-    const taskData = await parseJsonBody(req, res);
-    if (!taskData) {
+export async function createTask({req, res}: TaskService): Promise<void> {
+    const body = await parseJsonBody(req, res);
+    if (!isValidTaskInput(body)) {
+        sendJson(res, 400, { error: 'Invalid task body: title is required' });
         return;
     }
+    const taskData = body;
 
-    const task = {
+    const task: Task = {
         id: generateId(),
         title: taskData.title || '',
         description: taskData.description || '',
@@ -29,10 +46,10 @@ export async function createTask(req, res) {
     tasks.push(task);
     await saveTasks();
     sendJson(res, 201, task);
-    taskEventBus.emit('task:created', task);
+    taskEventBus.emitTaskCreated(task);
 }
 
-export function getTask(_req, res, { id }) {
+export function getTask({res, params: { id } = {}}: TaskService): void {
     const task = tasks.find((task) => task.id === id);
 
     if (task) {
@@ -42,7 +59,7 @@ export function getTask(_req, res, { id }) {
     }
 }
 
-export async function updateTask(req, res, { id }) {
+export async function updateTask({req, res, params: { id } = {}}: TaskService): Promise<void> {
     const index = tasks.findIndex((task) => task.id === id);
 
     if (index === -1) {
@@ -51,23 +68,29 @@ export async function updateTask(req, res, { id }) {
     }
 
     const updates = await parseJsonBody(req, res);
-    if (!updates) {
+    if (!isValidTaskUpdate(updates)) {
+        sendJson(res, 400, { error: 'Invalid update body' });
         return;
     }
 
     tasks[index] = {
         ...tasks[index],
         ...updates,
-        id: tasks[index].id,
+        id: tasks[index]!.id,
         updatedAt: new Date().toISOString(),
-    };
+    } as Task;
 
     await saveTasks();
     sendJson(res, 200, tasks[index]);
-    taskEventBus.emit('task:updated', tasks[index]);
+    taskEventBus.emitTaskUpdated(tasks[index]);
 }
 
-export function deleteTask(_req, res, { id }) {
+export function deleteTask({res, params: { id } = {}}: TaskService): void {
+    if (!id) {
+        sendJson(res, 400, { error: 'Missing task id' });
+        return;
+    }
+
     const index = tasks.findIndex((task) => task.id === id);
 
     if (index === -1) {
@@ -80,14 +103,14 @@ export function deleteTask(_req, res, { id }) {
         .then(() => {
             res.writeHead(204, { 'Content-Type': 'application/json' });
             res.end();
-            taskEventBus.emit('task:deleted', id);
+            taskEventBus.emitTaskDeleted(id);
         })
         .catch(() => {
             sendJson(res, 500, { error: 'Failed to persist tasks' });
         });
 }
 
-export function exportTasks(_req, res) {
+export function exportTasks({res}: TaskService): void {
     const headerLine = CSV_COLUMNS.join(',') + '\n';
     const rowLines = tasks.map(
         (task) => CSV_COLUMNS.map((col) => escapeCsv(task[col])).join(',') + '\n'
@@ -112,7 +135,7 @@ export function exportTasks(_req, res) {
     csvStream.pipe(res);
 }
 
-export async function importTasks(req, res) {
+export async function importTasks({req, res}: TaskService): Promise<void> {
     const contentType = req.headers['content-type'] || '';
     if (!contentType.includes('text/csv')) {
         sendJson(res, 415, { error: 'Content-Type must be text/csv' });
@@ -126,7 +149,7 @@ export async function importTasks(req, res) {
 
     let importedCount = 0;
     let isFirstLine = true;
-    let headers = [];
+    let headers: string[] = [];
 
     rl.on('line', (line) => {
         if (isFirstLine) {
@@ -138,23 +161,23 @@ export async function importTasks(req, res) {
         if (!line.trim()) return;
 
         const fields = parseCsvLine(line);
-        const taskData = {};
+        const taskData: Partial<Task> = {};
 
         headers.forEach((header, index) => {
-            taskData[header] = fields[index] || '';
+            (taskData as Record<string, string>)[header] = fields[index] || '';
         });
 
-        const newTask = {
+        const newTask: Task = {
             id: taskData.id || generateId(),
             title: taskData.title || '',
             description: taskData.description || '',
-            status: taskData.status || 'pending',
+            status: taskData.status || 'todo',
             createdAt: taskData.createdAt || new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
 
         tasks.push(newTask);
-        taskEventBus.emit('task:created', newTask);
+        taskEventBus.emitTaskCreated(newTask);
         importedCount++;
     });
 
@@ -175,11 +198,11 @@ export async function importTasks(req, res) {
     });
 }
 
-export function getHealth(_req, res) {
+export function getHealth({res}: TaskService): void {
     sendJson(res, 200, { status: 'ok', uptime: process.uptime() });
 }
 
-export function getInfo(_req, res) {
+export function getInfo({res}: TaskService): void {
     sendJson(res, 200, {
         nodeVersion: process.version,
         platform: os.platform(),

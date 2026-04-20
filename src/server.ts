@@ -2,14 +2,16 @@ import http from 'node:http';
 import { matchRoute, getAllowedMethods } from './router.js';
 import { sendJson } from './utils/http.js';
 
+import type { HttpMethod } from './types/task.js';
+
 export const server = http.createServer((request, response) => {
-    const method = request.method || 'GET';
+    const method = (request.method || 'GET') as HttpMethod;
     const pathname = new URL(request.url || '/', 'http://localhost').pathname;
     
     const match = matchRoute(method, pathname);
 
     if (match) {
-        match.handler(request, response, match.params);
+        match.handler({ req: request, res: response, params: match.params });
     } else {
         const allowedMethods = getAllowedMethods(pathname);
 

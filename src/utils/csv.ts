@@ -1,6 +1,8 @@
-export const CSV_COLUMNS = ['id', 'title', 'description', 'status', 'createdAt', 'updatedAt'];
+import type { Task } from '../types/task.js';
 
-export function parseCsvLine(line) {
+export const CSV_COLUMNS: (keyof Task)[] = ['id', 'title', 'description', 'status', 'createdAt', 'updatedAt'];
+
+export function parseCsvLine(line: string): string[] {
     const values = [];
     let current = '';
     let inQuotes = false;
@@ -33,7 +35,7 @@ export function parseCsvLine(line) {
     return values.map((value) => value.trim());
 }
 
-export function escapeCsv(value) {
+export function escapeCsv(value: unknown): string {
     const str = String(value ?? '');
     if (/[",\n\r]/.test(str)) {
         return `"${str.replace(/"/g, '""')}"`;

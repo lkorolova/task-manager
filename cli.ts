@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { createWriteStream } from 'node:fs';
+import type { Task } from './src/types/task.js';
 
 const command = process.argv[2];
 
@@ -10,7 +11,7 @@ switch (command) {
     case 'add': {
         const title = process.argv[3];
         if (!title) {
-            console.error('Usage: node cli.js add "Task title"');
+            console.error('Usage: npm run cli -- add "Task title"');
             process.exit(1);
         }
         await addTask(title);
@@ -19,7 +20,7 @@ switch (command) {
     case 'delete': {
         const id = process.argv[3];
         if (!id) {
-            console.error('Usage: node cli.js delete <id>');
+            console.error('Usage: npm run cli -- delete <id>');
             process.exit(1);
         }
         await deleteTask(id);
@@ -28,7 +29,7 @@ switch (command) {
     case 'export': {
         const filename = process.argv[3];
         if (!filename) {
-            console.error('Usage: node cli.js export <filename>');
+            console.error('Usage: npm run cli -- export <filename>');
             process.exit(1);
         }
         await exportTasks(filename);
@@ -36,11 +37,11 @@ switch (command) {
     }
     default:
         console.error(`Unknown command: ${command}`);
-        console.error('Commands: list, add, delete, export');
+        console.error('Commands: npm run cli -- list | add "title" | delete <id> | export <file>');
         process.exit(1);
 }
 
-function listTasks() {
+function listTasks(): Promise<void> {
     return new Promise((resolve, reject) => {
         const req = http.request(
             { host: 'localhost', port: 3000, path: '/tasks', method: 'GET' },
@@ -49,11 +50,12 @@ function listTasks() {
                 res.on('data', (chunk) => (data += chunk));
                 res.on('end', () => {
                     try {
-                        const tasks = JSON.parse(data);
-                        tasks.forEach((t) => console.log(t));
+                        const tasks = JSON.parse(data) as Task[];
+                        tasks.forEach((task) => console.log(task));
                         resolve();
                     } catch (err) {
-                        reject(new Error(`Failed to parse response: ${err.message}`));
+                        const msg = err instanceof Error ? err.message : String(err);
+                        reject(new Error(`Failed to parse response: ${msg}`));
                     }
                 });
             }
@@ -68,7 +70,7 @@ function listTasks() {
     });
 }
 
-function addTask(title) {
+function addTask(title: string): Promise<void> {
     return new Promise((resolve, reject) => {
         const body = JSON.stringify({ title });
         const options = {
@@ -87,16 +89,17 @@ function addTask(title) {
             res.on('data', (chunk) => (data += chunk));
             res.on('end', () => {
                 try {
-                    const task = JSON.parse(data);
+                    const task = JSON.parse(data) as Task;
                     if (res.statusCode === 201) {
                         console.log(`Task created: [${task.id}] ${task.title}`);
-                        resolve(task);
+                        resolve();
                     } else {
                         console.error(`Error: Server returned ${res.statusCode}`, task);
                         process.exit(1);
                     }
                 } catch (err) {
-                    reject(new Error(`Failed to parse response: ${err.message}`));
+                    const msg = err instanceof Error ? err.message : String(err);
+                    reject(new Error(`Failed to parse response: ${msg}`));
                 }
             });
         });
@@ -111,7 +114,7 @@ function addTask(title) {
     });
 }
 
-function deleteTask(id) {
+function deleteTask(id: string): Promise<void> {
     return new Promise((resolve, reject) => {
         const body = JSON.stringify({ id });
         const options = {
@@ -135,12 +138,12 @@ function deleteTask(id) {
                         resolve();
                         return;
                     }
-                    const parsed = JSON.parse(data);
+                    const parsed = JSON.parse(data) as Record<string, unknown>;
                     console.error(`Error: Server returned ${res.statusCode}`, parsed);
                     process.exit(1);
                 } catch (err) {
-                    reject(new Error(`Failed to parse response: ${err.message}`));
-                }
+                    const msg = err instanceof Error ? err.message : String(err);
+                    reject(new Error(`Failed to parse response: ${msg}`));                }
             });
         });
 
@@ -154,8 +157,8 @@ function deleteTask(id) {
     });
 }
 
-function exportTasks(filename) {
-    return new Promise((resolve, reject) => {
+function exportTasks(filename: string): Promise<void> {
+    return new Promise((resolve) => {
         const options = {
             host: 'localhost',
             port: 3000,

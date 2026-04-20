@@ -1,9 +1,11 @@
-export function sendJson(res, statusCode, payload) {
+import type { IncomingMessage, ServerResponse } from "node:http";
+
+export function sendJson(res:ServerResponse, statusCode: number, payload: unknown): void {
     res.writeHead(statusCode, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(payload));
 }
 
-export function parseJsonBody(req, res) {
+export function parseJsonBody(req: IncomingMessage, res: ServerResponse): Promise<unknown> {
     return new Promise((resolve) => {
         let body = '';
 
