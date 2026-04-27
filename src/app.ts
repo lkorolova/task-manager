@@ -9,7 +9,7 @@ import { requestId } from './middleware/request-id.js';
 import responseTime from './middleware/response-time.js';
 import { errorHandler } from './middleware/error-handler.js';
 
-const allowedOrigins = process.env.CORS_ORIGINS?.split(',').map((string)=> string.trim()) ?? [];
+const allowedOrigins = process.env['CORS_ORIGINS']?.split(',').map((string)=> string.trim()) ?? [];
 const app: Express = express();
 
 app.use(express.json());

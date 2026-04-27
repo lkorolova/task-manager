@@ -6,7 +6,7 @@ import { taskEventBus } from './events/task-event-bus.js';
 import { server } from './server.js';
 import { loadTasks, DATA_DIR } from './services/task.service.js';
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env['PORT'] || 3000;
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.log');
 
 await fs.mkdir(DATA_DIR, { recursive: true });
@@ -48,7 +48,7 @@ loadTasks()
     .then(() => {
         server.listen(PORT, () => {
             info(`Server is running on port ${PORT}`);
-            if (!process.env.PORT) {
+            if (!process.env['PORT']) {
                 warn('PORT is not set, falling back to default port 3000');
             }
         });

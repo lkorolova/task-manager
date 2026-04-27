@@ -7,20 +7,8 @@ import { taskEventBus } from '../events/task-event-bus.js';
 import { tasks, saveTasks } from '../services/task.service.js';
 import { parseCsvLine, escapeCsv, CSV_COLUMNS } from '../utils/csv.js';
 import type { Task } from '../types/task.js';
-
-function isValidTaskInput(value: unknown): value is Pick<Task, 'title' | 'description' | 'status'> {
-    if (typeof value !== 'object' || value === null) return false;
-    const v = value as Record<string, unknown>;
-    return typeof v.title === 'string';
-}
-
-function isValidTaskUpdate(value: unknown): value is Partial<Pick<Task, 'title' | 'description' | 'status'>> {
-    if (typeof value !== 'object' || value === null) return false;
-    const v = value as Record<string, unknown>;
-    return (['title', 'description', 'status'] as const).every(
-        (key) => !(key in v) || typeof v[key] === 'string'
-    );
-}
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 export function getTasks(_req: Request, res: Response): void {
     res.json(tasks);
@@ -28,15 +16,11 @@ export function getTasks(_req: Request, res: Response): void {
 
 export async function createTask(req: Request, res: Response): Promise<void> {
     const body = req.body;
-    if (!isValidTaskInput(body)) {
-        res.status(400).json({ error: 'Invalid task body: title is required' });
-        return;
-    }
 
     const task: Task = {
         id: generateId(),
         title: body.title,
-        description: body.description || '',
+        description: body.description,
         status: 'todo',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -67,10 +51,6 @@ export async function updateTask(req: Request<{ id: string }>, res: Response): P
     }
 
     const updates = req.body;
-    if (!isValidTaskUpdate(updates)) {
-        res.status(400).json({ error: 'Invalid update body' });
-        return;
-    }
 
     tasks[index] = {
         ...tasks[index],
@@ -85,7 +65,8 @@ export async function updateTask(req: Request<{ id: string }>, res: Response): P
 }
 
 export function deleteTask(req: Request<{ id: string }>, res: Response): void {
-    const index = tasks.findIndex((task) => task.id === req.params.id);
+    const id = req.params.id;
+    const index = tasks.findIndex((task) => task.id === id);
 
     if (index === -1) {
         res.status(404).json({ error: 'Task not found' });
@@ -94,9 +75,10 @@ export function deleteTask(req: Request<{ id: string }>, res: Response): void {
 
     const [deleted] = tasks.splice(index, 1);
     saveTasks()
-        .then(() => {
+        .then(async () => {
             res.status(204).end();
             taskEventBus.emitTaskDeleted(deleted!.id);
+            await fs.rm(path.join('uploads', id), { recursive: true, force: true });
         })
         .catch(() => {
             res.status(500).json({ error: 'Failed to persist tasks' });
@@ -195,4 +177,38 @@ export function getInfo(_req: Request, res: Response): void {
         platform: os.platform(),
         memoryUsage: process.memoryUsage(),
     });
+}
+
+export function uploadAttachment(req: Request<{ id: string }>, res: Response): void {
+    if (!req.file) {
+        res.status(400).json({ error: 'No file uploaded' });
+        return;
+    }
+    res.status(201).json({ filename: req.file.filename });
+}
+
+export async function getAttachment(req: Request<{ id: string, filename: string}>, res: Response) {
+    const { id, filename } = req.params;
+
+    if(filename.includes('/') || filename.includes('\\')) {
+        res.status(400).json({ error: 'Invalid filename' });
+        return;
+    }
+
+    const base = path.resolve('uploads', id);
+    const target = path.resolve(base, filename);
+
+    if(!target.startsWith(base + path.sep)) {
+        res.status(400).json({error: 'Invalid filename'});
+        return;
+    }
+
+    try {
+        await fs.access(target);
+    } catch {
+        res.status(404).json({ error: 'File not found' });
+        return;
+    }
+
+    res.sendFile(target);
 }

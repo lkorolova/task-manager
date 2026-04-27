@@ -11,17 +11,30 @@ import {
     importTasks,
     getHealth,
     getInfo,
+    uploadAttachment,
+    getAttachment,
 } from '../handlers/route-handlers.js';
+import { createTaskSchema, updateTaskSchema } from '../validators/task.validator.js';
+import { validate } from '../middleware/validate.js';
+import { ensureTaskExists, ensureUploadDir, upload } from '../middleware/upload.js';
 
 const router: Router = express.Router();
 
 router.get('/tasks/export', exportTasks);
 router.post('/tasks/import', importTasks);
 router.get('/tasks', getTasks);
-router.post('/tasks', createTask);
+router.post('/tasks', validate(createTaskSchema), createTask);
 router.get('/tasks/:id', getTask);
-router.put('/tasks/:id', updateTask);
+router.put('/tasks/:id', validate(updateTaskSchema), updateTask);
 router.delete('/tasks/:id', deleteTask);
+router.post(
+    '/tasks/:id/attachments',
+    ensureTaskExists,
+    ensureUploadDir,
+    upload.single('file'),
+    uploadAttachment
+);
+router.get('/tasks/:id/attachments/:filename', ensureTaskExists, getAttachment);
 router.get('/health', getHealth);
 router.get('/info', getInfo);
 
