@@ -1,12 +1,12 @@
 import os from 'node:os';
 import readline from 'node:readline';
 import { Readable } from 'node:stream';
+import type { Request, Response } from 'express';
 import { generateId } from '../utils/id-generator.js';
-import { sendJson, parseJsonBody } from '../utils/http.js';
 import { taskEventBus } from '../events/task-event-bus.js';
 import { tasks, saveTasks } from '../services/task.service.js';
 import { parseCsvLine, escapeCsv, CSV_COLUMNS } from '../utils/csv.js';
-import type { Task, TaskService } from '../types/task.js';
+import type { Task } from '../types/task.js';
 
 function isValidTaskInput(value: unknown): value is Pick<Task, 'title' | 'description' | 'status'> {
     if (typeof value !== 'object' || value === null) return false;
@@ -22,22 +22,21 @@ function isValidTaskUpdate(value: unknown): value is Partial<Pick<Task, 'title' 
     );
 }
 
-export function getTasks({res}: TaskService): void  {
-    sendJson(res, 200, tasks);
+export function getTasks(_req: Request, res: Response): void {
+    res.json(tasks);
 }
 
-export async function createTask({req, res}: TaskService): Promise<void> {
-    const body = await parseJsonBody(req, res);
+export async function createTask(req: Request, res: Response): Promise<void> {
+    const body = req.body;
     if (!isValidTaskInput(body)) {
-        sendJson(res, 400, { error: 'Invalid task body: title is required' });
+        res.status(400).json({ error: 'Invalid task body: title is required' });
         return;
     }
-    const taskData = body;
 
     const task: Task = {
         id: generateId(),
-        title: taskData.title || '',
-        description: taskData.description || '',
+        title: body.title,
+        description: body.description || '',
         status: 'todo',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -45,31 +44,31 @@ export async function createTask({req, res}: TaskService): Promise<void> {
 
     tasks.push(task);
     await saveTasks();
-    sendJson(res, 201, task);
+    res.status(201).json(task);
     taskEventBus.emitTaskCreated(task);
 }
 
-export function getTask({res, params: { id } = {}}: TaskService): void {
-    const task = tasks.find((task) => task.id === id);
+export function getTask(req: Request<{ id: string }>, res: Response): void {
+    const task = tasks.find((task) => task.id === req.params.id);
 
     if (task) {
-        sendJson(res, 200, task);
+        res.json(task);
     } else {
-        sendJson(res, 404, { error: 'Task not found' });
+        res.status(404).json({ error: 'Task not found' });
     }
 }
 
-export async function updateTask({req, res, params: { id } = {}}: TaskService): Promise<void> {
-    const index = tasks.findIndex((task) => task.id === id);
+export async function updateTask(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const index = tasks.findIndex((task) => task.id === req.params.id);
 
     if (index === -1) {
-        sendJson(res, 404, { error: 'Task not found' });
+        res.status(404).json({ error: 'Task not found' });
         return;
     }
 
-    const updates = await parseJsonBody(req, res);
+    const updates = req.body;
     if (!isValidTaskUpdate(updates)) {
-        sendJson(res, 400, { error: 'Invalid update body' });
+        res.status(400).json({ error: 'Invalid update body' });
         return;
     }
 
@@ -81,52 +80,43 @@ export async function updateTask({req, res, params: { id } = {}}: TaskService): 
     } as Task;
 
     await saveTasks();
-    sendJson(res, 200, tasks[index]);
+    res.json(tasks[index]);
     taskEventBus.emitTaskUpdated(tasks[index]);
 }
 
-export function deleteTask({res, params: { id } = {}}: TaskService): void {
-    if (!id) {
-        sendJson(res, 400, { error: 'Missing task id' });
-        return;
-    }
-
-    const index = tasks.findIndex((task) => task.id === id);
+export function deleteTask(req: Request<{ id: string }>, res: Response): void {
+    const index = tasks.findIndex((task) => task.id === req.params.id);
 
     if (index === -1) {
-        sendJson(res, 404, { error: 'Task not found' });
+        res.status(404).json({ error: 'Task not found' });
         return;
     }
 
-    tasks.splice(index, 1);
+    const [deleted] = tasks.splice(index, 1);
     saveTasks()
         .then(() => {
-            res.writeHead(204, { 'Content-Type': 'application/json' });
-            res.end();
-            taskEventBus.emitTaskDeleted(id);
+            res.status(204).end();
+            taskEventBus.emitTaskDeleted(deleted!.id);
         })
         .catch(() => {
-            sendJson(res, 500, { error: 'Failed to persist tasks' });
+            res.status(500).json({ error: 'Failed to persist tasks' });
         });
 }
 
-export function exportTasks({res}: TaskService): void {
+export function exportTasks(_req: Request, res: Response): void {
     const headerLine = CSV_COLUMNS.join(',') + '\n';
     const rowLines = tasks.map(
         (task) => CSV_COLUMNS.map((col) => escapeCsv(task[col])).join(',') + '\n'
     );
 
-    res.writeHead(200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="tasks.csv"',
-    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="tasks.csv"');
 
     const csvStream = Readable.from([headerLine, ...rowLines]);
 
     csvStream.on('error', () => {
         if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Failed to export tasks' }));
+            res.status(500).json({ error: 'Failed to export tasks' });
         } else {
             res.destroy();
         }
@@ -135,10 +125,10 @@ export function exportTasks({res}: TaskService): void {
     csvStream.pipe(res);
 }
 
-export async function importTasks({req, res}: TaskService): Promise<void> {
+export async function importTasks(req: Request, res: Response): Promise<void> {
     const contentType = req.headers['content-type'] || '';
     if (!contentType.includes('text/csv')) {
-        sendJson(res, 415, { error: 'Content-Type must be text/csv' });
+        res.status(415).json({ error: 'Content-Type must be text/csv' });
         return;
     }
 
@@ -184,26 +174,23 @@ export async function importTasks({req, res}: TaskService): Promise<void> {
     rl.on('close', async () => {
         try {
             await saveTasks();
-            res.writeHead(201, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ imported: importedCount }));
+            res.status(201).json({ imported: importedCount });
         } catch {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Failed to save tasks' }));
+            res.status(500).json({ error: 'Failed to save tasks' });
         }
     });
 
     rl.on('error', () => {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid CSV format' }));
+        res.status(400).json({ error: 'Invalid CSV format' });
     });
 }
 
-export function getHealth({res}: TaskService): void {
-    sendJson(res, 200, { status: 'ok', uptime: process.uptime() });
+export function getHealth(_req: Request, res: Response): void {
+    res.json({ status: 'ok', uptime: process.uptime() });
 }
 
-export function getInfo({res}: TaskService): void {
-    sendJson(res, 200, {
+export function getInfo(_req: Request, res: Response): void {
+    res.json({
         nodeVersion: process.version,
         platform: os.platform(),
         memoryUsage: process.memoryUsage(),
