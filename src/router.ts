@@ -1,4 +1,6 @@
 export function getAllowedMethods(pathname: string) {
+    pathname = pathname.replace(/\/+$/, '') || '/';
+
     if (pathname === '/tasks') {
         return ['GET', 'POST'];
     }
@@ -21,6 +23,10 @@ export function getAllowedMethods(pathname: string) {
     }
 
     if (urlParts[0] === 'tasks' && urlParts[2] === 'attachments' && urlParts.length === 4) {
+        return ['GET'];
+    }
+    
+    if (urlParts[0] === 'users' && urlParts[3] === 'tasks' && urlParts.length === 3) {
         return ['GET'];
     }
 

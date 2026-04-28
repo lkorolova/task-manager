@@ -1,20 +1,57 @@
 import os from 'node:os';
 import readline from 'node:readline';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { generateId } from '../utils/id-generator.js';
 import { taskEventBus } from '../events/task-event-bus.js';
-import { tasks, saveTasks } from '../services/task.service.js';
 import { parseCsvLine, escapeCsv, CSV_COLUMNS } from '../utils/csv.js';
 import type { Task } from '../types/task.js';
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import db from '../db/database.js';
+import { parsePagination } from '../utils/parse-pagination.js';
+const insertTask = db.prepare<[string, string, string, string, string, string]>(`
+    INSERT INTO tasks (id, title, description, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+`);
+const getTaskStmt = db.prepare<[string], Task>(
+    'SELECT id, title, description, status, created_at AS createdAt, updated_at AS updatedAt FROM tasks WHERE id = ?'
+);
+const getTasksStmt = db.prepare<[number, number], Task>(
+    `SELECT id, 
+        title, 
+        description, 
+        status, 
+        created_at AS createdAt, 
+        updated_at AS updatedAt 
+    FROM tasks 
+    LIMIT ? OFFSET ?
+`);
+const updateTaskStmt = db.prepare<{ title: string; description: string; status: string; updatedAt: string; id: string }>(`
+    UPDATE tasks SET title = :title, description = :description, status = :status, updated_at = :updatedAt WHERE id = :id
+`);
+const deleteTaskStmt = db.prepare<[string]>(`
+    DELETE FROM tasks WHERE id = ?
+`);
+const exportTasksStmt = db.prepare<[], Task>(
+    `SELECT id, title, description, status, created_at AS createdAt, updated_at AS updatedAt FROM tasks`
+);
+const getUserTasksStmt = db.prepare<[string], Task & { username: string }>(`
+    SELECT tasks.id, tasks.title, tasks.description, tasks.status, tasks.created_at AS createdAt, tasks.updated_at AS updatedAt,users.username FROM tasks
+    JOIN users ON users.id = tasks.user_id
+    WHERE users.id = ?
+`);
 
-export function getTasks(_req: Request, res: Response): void {
-    res.json(tasks);
+export function getTasks(req: Request, res: Response): void {
+    const { page, limit } = parsePagination(req.query);
+    const offset = (page - 1) * limit;
+
+    const tasks = getTasksStmt.all(limit, offset);
+
+    res.json({ page, limit, data: tasks });
 }
 
-export async function createTask(req: Request, res: Response): Promise<void> {
+export function createTask(req: Request, res: Response): void {
     const body = req.body;
 
     const task: Task = {
@@ -26,14 +63,26 @@ export async function createTask(req: Request, res: Response): Promise<void> {
         updatedAt: new Date().toISOString(),
     };
 
-    tasks.push(task);
-    await saveTasks();
+    try {
+        insertTask.run(
+            task.id, 
+            task.title, 
+            task.description, 
+            task.status, 
+            task.createdAt, 
+            task.updatedAt
+        );
+    } catch (err) {
+        res.status(500).json({ error: err });
+        return;
+    }
+
     res.status(201).json(task);
     taskEventBus.emitTaskCreated(task);
 }
 
 export function getTask(req: Request<{ id: string }>, res: Response): void {
-    const task = tasks.find((task) => task.id === req.params.id);
+    const task = getTaskStmt.get(req.params.id);
 
     if (task) {
         res.json(task);
@@ -42,50 +91,54 @@ export function getTask(req: Request<{ id: string }>, res: Response): void {
     }
 }
 
-export async function updateTask(req: Request<{ id: string }>, res: Response): Promise<void> {
-    const index = tasks.findIndex((task) => task.id === req.params.id);
+export function updateTask(req: Request<{ id: string }>, res: Response): void {
+    const id = req.params.id;
+    const task = getTaskStmt.get(id);
 
-    if (index === -1) {
+    if (!task) {
         res.status(404).json({ error: 'Task not found' });
         return;
     }
 
     const updates = req.body;
-
-    tasks[index] = {
-        ...tasks[index],
+    const updatedTask = {
+        ...task,
         ...updates,
-        id: tasks[index]!.id,
-        updatedAt: new Date().toISOString(),
-    } as Task;
+    };
 
-    await saveTasks();
-    res.json(tasks[index]);
-    taskEventBus.emitTaskUpdated(tasks[index]);
-}
-
-export function deleteTask(req: Request<{ id: string }>, res: Response): void {
-    const id = req.params.id;
-    const index = tasks.findIndex((task) => task.id === id);
-
-    if (index === -1) {
-        res.status(404).json({ error: 'Task not found' });
+    try {
+        updateTaskStmt.run({
+            title: updatedTask.title,
+            description: updatedTask.description,
+            status: updatedTask.status,
+            updatedAt: new Date().toISOString(),
+            id: id,
+        })
+    } catch (err) {
+        res.status(500).json({err: err});
         return;
     }
+    
+    res.json(updatedTask);
+    taskEventBus.emitTaskUpdated(updatedTask);
+}
 
-    const [deleted] = tasks.splice(index, 1);
-    saveTasks()
-        .then(async () => {
-            res.status(204).end();
-            taskEventBus.emitTaskDeleted(deleted!.id);
-            await fs.rm(path.join('uploads', id), { recursive: true, force: true });
-        })
-        .catch(() => {
-            res.status(500).json({ error: 'Failed to persist tasks' });
-        });
+export async function deleteTask(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = req.params.id;
+
+    try {
+        deleteTaskStmt.run(id);
+        res.status(204).end();
+        taskEventBus.emitTaskDeleted(id);
+        await fs.rm(path.join('uploads', id), { recursive: true, force: true });
+    } catch (err) {
+        res.status(500).json({ err: err });
+    }
 }
 
 export function exportTasks(_req: Request, res: Response): void {
+    const tasks = exportTasksStmt.all() as Task[];
+
     const headerLine = CSV_COLUMNS.join(',') + '\n';
     const rowLines = tasks.map(
         (task) => CSV_COLUMNS.map((col) => escapeCsv(task[col])).join(',') + '\n'
@@ -139,8 +192,8 @@ export async function importTasks(req: Request, res: Response): Promise<void> {
             (taskData as Record<string, string>)[header] = fields[index] || '';
         });
 
-        const newTask: Task = {
-            id: taskData.id || generateId(),
+        const task: Task = {
+            id: generateId(),
             title: taskData.title || '',
             description: taskData.description || '',
             status: taskData.status || 'todo',
@@ -148,18 +201,25 @@ export async function importTasks(req: Request, res: Response): Promise<void> {
             updatedAt: new Date().toISOString(),
         };
 
-        tasks.push(newTask);
-        taskEventBus.emitTaskCreated(newTask);
-        importedCount++;
+        try {
+            insertTask.run(
+                task.id, 
+                task.title, 
+                task.description, 
+                task.status, 
+                task.createdAt, 
+                task.updatedAt
+            );
+            taskEventBus.emitTaskCreated(task);
+            importedCount++;
+        } catch (err) {
+            res.status(500).json({ err: err });
+            return;
+        }
     });
 
-    rl.on('close', async () => {
-        try {
-            await saveTasks();
-            res.status(201).json({ imported: importedCount });
-        } catch {
-            res.status(500).json({ error: 'Failed to save tasks' });
-        }
+    rl.on('close', () => {
+        res.status(201).json({ imported: importedCount });
     });
 
     rl.on('error', () => {
@@ -211,4 +271,15 @@ export async function getAttachment(req: Request<{ id: string, filename: string}
     }
 
     res.sendFile(target);
+}
+
+export function getUserTasks(req: Request<{ id: string }>, res: Response) {
+    const userId = req.params.id;
+
+    try {
+        const tasks = getUserTasksStmt.all(userId)
+        res.json(tasks);
+    } catch {
+        res.status(500).json({ error: 'Error getting user tasks' });
+    }
 }

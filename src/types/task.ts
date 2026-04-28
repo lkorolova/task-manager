@@ -8,3 +8,8 @@ export interface Task {
     createdAt: string;
     updatedAt: string;
 };
+
+export interface PaginationParams {
+    page: number;
+    limit: number;
+}

@@ -13,6 +13,7 @@ import {
     getInfo,
     uploadAttachment,
     getAttachment,
+    getUserTasks,
 } from '../handlers/route-handlers.js';
 import { createTaskSchema, updateTaskSchema } from '../validators/task.validator.js';
 import { validate } from '../middleware/validate.js';
@@ -25,8 +26,8 @@ router.post('/tasks/import', importTasks);
 router.get('/tasks', getTasks);
 router.post('/tasks', validate(createTaskSchema), createTask);
 router.get('/tasks/:id', getTask);
-router.put('/tasks/:id', validate(updateTaskSchema), updateTask);
-router.delete('/tasks/:id', deleteTask);
+router.put('/tasks/:id', validate(updateTaskSchema), ensureTaskExists, updateTask);
+router.delete('/tasks/:id', ensureTaskExists, deleteTask);
 router.post(
     '/tasks/:id/attachments',
     ensureTaskExists,
@@ -37,6 +38,7 @@ router.post(
 router.get('/tasks/:id/attachments/:filename', ensureTaskExists, getAttachment);
 router.get('/health', getHealth);
 router.get('/info', getInfo);
+router.get('/users/:id/tasks', getUserTasks);
 
 router.use((req: Request, res: Response) => {
     const allowedMethods = getAllowedMethods(req.path);

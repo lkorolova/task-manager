@@ -43,8 +43,3 @@ export async function loadTasks(): Promise<void> {
         throw error;
     }
 }
-
-export async function saveTasks(): Promise<void> {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.writeFile(TASKS_FILE, JSON.stringify(tasks, null, 2), 'utf8');
-}

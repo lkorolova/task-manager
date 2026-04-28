@@ -2,7 +2,7 @@ import multer from "multer";
 import path from "node:path";
 import { promises as fs } from 'node:fs';
 import type { Request, Response, NextFunction } from 'express';
-import { tasks } from '../services/task.service.js';
+import db from '../db/database.js';
 
 const ALLOWED_MIMES = ['image/png', 'image/jpeg', 'application/pdf'];
 
@@ -40,8 +40,8 @@ export const ensureUploadDir = async (req: Request, _res: Response, next: NextFu
 export const ensureTaskExists = (req: Request, res: Response, next: NextFunction) => {
     const id: string = Array.isArray(req.params['id']) ? req.params['id'][0]! : (req.params['id'] ?? '');
 
-    const taskExists = tasks.some((task) => task.id === id);
-    if (!taskExists) {
+    const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
+    if (!task) {
         res.status(404).json({ error: 'Task not found' });
         return;
     }
