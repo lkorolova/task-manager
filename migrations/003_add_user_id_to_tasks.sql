@@ -1,1 +1,1 @@
-ALTER TABLE tasks ADD COLUMN user_id TEXT REFERENCES users(id);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES users(id);

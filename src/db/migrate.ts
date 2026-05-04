@@ -1,17 +1,18 @@
+import 'dotenv/config';
 import { readdirSync, readFileSync } from 'node:fs';
-import db from './database.js';
 import path from 'node:path';
+import pool from './pg-database.js';
+import { info } from '../utils/logger.js';
 
-db.exec(`
+await pool.query(`
     CREATE TABLE IF NOT EXISTS _migrations (
         name TEXT PRIMARY KEY,
-        applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
 `);
 
-const applied = new Set(
-    (db.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map(r => r.name)
-);
+const { rows } = await pool.query<{ name: string }>('SELECT name FROM _migrations');
+const applied = new Set(rows.map(r => r.name));
 
 const migrationsDir = path.resolve('migrations');
 
@@ -23,6 +24,10 @@ for (const file of files) {
     if (applied.has(file)) continue;
 
     const migration = readFileSync(path.join(migrationsDir, file), 'utf8');
-    db.exec(migration);
-    db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
+    await pool.query(migration);
+    await pool.query('INSERT INTO _migrations (name) VALUES ($1)', [file]);
+
+    info(`Applied: ${file}`);
 }
+
+info('Migrations complete.');

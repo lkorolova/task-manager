@@ -25,8 +25,12 @@ export function getAllowedMethods(pathname: string) {
     if (urlParts[0] === 'tasks' && urlParts[2] === 'attachments' && urlParts.length === 4) {
         return ['GET'];
     }
+
+    if (urlParts[0] === 'tasks' && urlParts[2] === 'comments' && urlParts.length === 3) {
+        return ['GET', 'POST'];
+    }
     
-    if (urlParts[0] === 'users' && urlParts[3] === 'tasks' && urlParts.length === 3) {
+    if (urlParts[0] === 'users' && urlParts[2] === 'tasks' && urlParts.length === 3) {
         return ['GET'];
     }
 

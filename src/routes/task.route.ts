@@ -14,6 +14,8 @@ import {
     uploadAttachment,
     getAttachment,
     getUserTasks,
+    getTaskComments,
+    createComment,
 } from '../handlers/route-handlers.js';
 import { createTaskSchema, updateTaskSchema } from '../validators/task.validator.js';
 import { validate } from '../middleware/validate.js';
@@ -39,6 +41,8 @@ router.get('/tasks/:id/attachments/:filename', ensureTaskExists, getAttachment);
 router.get('/health', getHealth);
 router.get('/info', getInfo);
 router.get('/users/:id/tasks', getUserTasks);
+router.get('/tasks/:id/comments', ensureTaskExists, getTaskComments);
+router.post('/tasks/:id/comments', ensureTaskExists, createComment);
 
 router.use((req: Request, res: Response) => {
     const allowedMethods = getAllowedMethods(req.path);

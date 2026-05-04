@@ -1,10 +1,11 @@
 # Task Manager API
 
-A REST API for managing tasks, built with Node.js and TypeScript — no frameworks.
+A REST API for managing tasks, built with Node.js, TypeScript, Express, and PostgreSQL.
 
 ## Requirements
 
 - Node.js v20+
+- PostgreSQL (any recent version)
 
 ## Setup
 
@@ -12,7 +13,41 @@ A REST API for managing tasks, built with Node.js and TypeScript — no framewor
 git clone <repo-url>
 cd task-manager
 npm install
+```
 
+### Database setup
+
+PostgreSQL must be installed and running before starting the app.
+
+**1. Start PostgreSQL** (Homebrew on macOS):
+
+```bash
+brew services start postgresql
+```
+
+**2. Create the database:**
+
+```bash
+psql -U <your_macos_username> -d postgres -c "CREATE DATABASE task_manager;"
+```
+
+Replace `<your_macos_username>` with the output of `whoami`. On macOS with Homebrew, the default superuser matches your system username.
+
+**3. Create a `.env` file** in the project root:
+
+```
+DATABASE_URL=postgresql://<your_macos_username>@localhost:5432/task_manager
+```
+
+**4. Run migrations** to create the tables:
+
+```bash
+npm run migrate
+```
+
+### Start the server
+
+```bash
 # Development (auto-restart on file change)
 npm run dev
 
@@ -21,10 +56,15 @@ npm run build
 npm start
 ```
 
-The server listens on `http://localhost:3000` by default. Set the `PORT` environment variable to use a different port:
+The server listens on `http://localhost:3000` by default. Set the `PORT` environment variable to use a different port — either inline or in `.env`:
 
 ```bash
 PORT=8080 npm run dev
+```
+
+```
+# .env
+PORT=8080
 ```
 
 ## npm Scripts
@@ -34,6 +74,8 @@ PORT=8080 npm run dev
 | `npm run dev` | Start with `tsx watch` (auto-restart on file change) |
 | `npm start` | Run compiled JS from `dist/` |
 | `npm run build` | Compile TypeScript with `tsc` |
+| `npm run typecheck` | Run TypeScript checks without emitting files |
+| `npm run migrate` | Run SQL migrations from `migrations/` |
 | `npm run cli` | Run CLI tool via `tsx` |
 
 ## API Endpoints
@@ -42,13 +84,28 @@ PORT=8080 npm run dev
 
 | Method | Path | Description | Status |
 |--------|------|-------------|--------|
-| `GET` | `/tasks` | List all tasks | `200` |
+| `GET` | `/tasks` | List tasks (supports `?page=` and `?limit=`) | `200` |
 | `POST` | `/tasks` | Create a task | `201` |
 | `GET` | `/tasks/:id` | Get a task by ID | `200` / `404` |
 | `PUT` | `/tasks/:id` | Update a task by ID | `200` / `404` |
 | `DELETE` | `/tasks/:id` | Delete a task by ID | `204` / `404` |
 | `GET` | `/tasks/export` | Download all tasks as CSV | `200` |
-| `POST` | `/tasks/import` | Import tasks from CSV body | `201` |
+| `POST` | `/tasks/import` | Import tasks from CSV body | `201` / `415` |
+| `POST` | `/tasks/:id/attachments` | Upload attachment (`multipart/form-data`, `file`) | `201` / `400` / `404` / `415` |
+| `GET` | `/tasks/:id/attachments/:filename` | Download task attachment | `200` / `400` / `404` |
+
+### Comments
+
+| Method | Path | Description | Status |
+|--------|------|-------------|--------|
+| `GET` | `/tasks/:id/comments` | List comments for a task | `200` / `404` |
+| `POST` | `/tasks/:id/comments` | Create comment for a task | `201` / `404` |
+
+### Users
+
+| Method | Path | Description | Status |
+|--------|------|-------------|--------|
+| `GET` | `/users/:id/tasks` | List tasks for a specific user | `200` |
 
 ### System
 
@@ -64,9 +121,20 @@ PORT=8080 npm run dev
   "id": "uuid",
   "title": "string",
   "description": "string",
-  "status": "todo | pending",
+  "status": "todo | in-progress | done",
   "createdAt": "ISO 8601",
   "updatedAt": "ISO 8601"
+}
+```
+
+## Comment Schema
+
+```json
+{
+  "id": "uuid",
+  "taskId": "uuid",
+  "body": "string",
+  "createdAt": "ISO 8601"
 }
 ```
 
@@ -82,7 +150,7 @@ npx tsx cli.ts export <filename>           # Download CSV export to a local file
 ## Utilities
 
 ```bash
-npx tsx utils/copy-file.ts <src> <dest>    # Copy a file using streams
+node utils/copy-file.js <src> <dest>    # Copy a file using streams
 ```
 
 ## Project Structure
@@ -90,32 +158,46 @@ npx tsx utils/copy-file.ts <src> <dest>    # Copy a file using streams
 ```
 src/
   index.ts              # Entry point: audit log + server bootstrap
-  server.ts             # HTTP server creation + request dispatch
-  router.ts             # Route map, matchRoute, getAllowedMethods
+  app.ts                # Express app + middleware setup
+  server.ts             # HTTP server creation
+  router.ts             # Allowed-method detection for 405 responses
+  db/
+    pg-database.ts      # PostgreSQL connection pool
+    migrate.ts          # SQL migration runner
+  routes/
+    task.route.ts       # Express route definitions
   handlers/
-    route-handlers.ts   # One named function per route
-  services/
-    task.service.ts     # tasks array, loadTasks, saveTasks
+    route-handlers.ts   # Route handlers and SQL query helpers
+  middleware/
+    request-id.ts       # Attach request id
+    response-time.ts    # Request timing logger
+    validate.ts         # Zod-based body validation
+    upload.ts           # Multer upload + task existence checks
+    error-handler.ts    # Centralized error handler
+  validators/
+    task.validator.ts   # Zod schemas for task create/update
   events/
     task-event-bus.ts   # Typed EventEmitter subclass + singleton
   types/
-    task.ts             # Task interface, RouteHandler, TaskService types
+    task.ts             # Task interface
+    user.ts             # User interface
+    comment.ts          # Comment interface
+    express.d.ts        # Express Request type augmentation
   utils/
     logger.ts           # info / warn / error with timestamps
     id-generator.ts     # generateId() via crypto.randomUUID()
-    http.ts             # sendJson, parseJsonBody
     csv.ts              # parseCsvLine, escapeCsv, CSV_COLUMNS
 data/                   # Created locally — not committed to the repo
-  tasks.json            # Persisted tasks
   audit.log             # Append-only event log
+uploads/                # File uploads grouped by task id
 cli.ts                  # CLI tool
 utils/
-  copy-file.ts          # Stream-based file copy utility
+  copy-file.js          # Stream-based file copy utility
 tsconfig.json           # TypeScript configuration
 ```
 
 ## Data Persistence
 
-Tasks are persisted to `data/tasks.json` on every write. The file is loaded into memory on startup.
+Application data is stored in PostgreSQL (`tasks`, `users`, `comments`).
 
 All task events (`task:created`, `task:updated`, `task:deleted`) are appended to `data/audit.log` as JSON lines.
