@@ -34,5 +34,17 @@ export function getAllowedMethods(pathname: string) {
         return ['GET'];
     }
 
+    if (urlParts[0] === 'auth' && urlParts[1] === 'register') {        
+        return ['POST'];
+    }
+
+    if (urlParts[0] === 'auth' && urlParts[1] === 'login') {        
+        return ['POST'];
+    }
+    
+    if (urlParts[0] === 'auth' && urlParts[1] === 'refresh') {        
+        return ['POST'];
+    }
+
     return [];
 }

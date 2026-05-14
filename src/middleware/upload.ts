@@ -47,5 +47,7 @@ export const ensureTaskExists = async (req: Request, res: Response, next: NextFu
         return;
     }
 
+    req.task = { userId: task.userId };
+
     next();
 }

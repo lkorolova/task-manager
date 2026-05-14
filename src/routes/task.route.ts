@@ -1,6 +1,5 @@
 import express from 'express';
-import type { Router, Request, Response } from 'express';
-import { getAllowedMethods } from '../router.js';
+import type { Router } from 'express';
 import {
     getTasks,
     createTask,
@@ -20,39 +19,35 @@ import {
 import { createTaskSchema, updateTaskSchema } from '../validators/task.validator.js';
 import { validate } from '../middleware/validate.js';
 import { ensureTaskExists, ensureUploadDir, upload } from '../middleware/upload.js';
+import { authenticate } from '../middleware/authenticate.js';
+import { authorize } from '../middleware/authorize.js';
 
-const router: Router = express.Router();
+const taskRouter: Router = express.Router();
 
-router.get('/tasks/export', exportTasks);
-router.post('/tasks/import', importTasks);
-router.get('/tasks', getTasks);
-router.post('/tasks', validate(createTaskSchema), createTask);
-router.get('/tasks/:id', getTask);
-router.put('/tasks/:id', validate(updateTaskSchema), ensureTaskExists, updateTask);
-router.delete('/tasks/:id', ensureTaskExists, deleteTask);
-router.post(
+taskRouter.use(['/tasks', '/users'], authenticate);
+
+taskRouter.get('/tasks/export', authorize('admin'), exportTasks);
+taskRouter.post('/tasks/import', authorize('admin'), importTasks);
+taskRouter.get('/health', getHealth);
+taskRouter.get('/info', getInfo);
+
+taskRouter.get('/tasks', authorize('admin'), getTasks);
+taskRouter.post('/tasks', authorize('admin', 'user'), validate(createTaskSchema), createTask);
+taskRouter.get('/tasks/:id', authorize('admin', 'user'), getTask);
+taskRouter.put('/tasks/:id', authorize('admin', 'user'), validate(updateTaskSchema), ensureTaskExists, updateTask);
+taskRouter.delete('/tasks/:id', authorize('admin', 'user'), ensureTaskExists, deleteTask);
+taskRouter.post(
     '/tasks/:id/attachments',
+    authorize('admin', 'user'),
     ensureTaskExists,
     ensureUploadDir,
     upload.single('file'),
     uploadAttachment
 );
-router.get('/tasks/:id/attachments/:filename', ensureTaskExists, getAttachment);
-router.get('/health', getHealth);
-router.get('/info', getInfo);
-router.get('/users/:id/tasks', getUserTasks);
-router.get('/tasks/:id/comments', ensureTaskExists, getTaskComments);
-router.post('/tasks/:id/comments', ensureTaskExists, createComment);
+taskRouter.get('/tasks/:id/attachments/:filename',  authorize('admin', 'user'), ensureTaskExists, getAttachment);
+taskRouter.get('/users/:id/tasks', authorize('admin', 'user'), getUserTasks);
+taskRouter.get('/tasks/:id/comments', authorize('admin', 'user'), ensureTaskExists, getTaskComments);
+taskRouter.post('/tasks/:id/comments', authorize('admin', 'user'), ensureTaskExists, createComment);
 
-router.use((req: Request, res: Response) => {
-    const allowedMethods = getAllowedMethods(req.path);
-    if (allowedMethods.length > 0) {
-        res.set('Allow', allowedMethods.join(', '));
-        res.status(405).json({ error: 'Method not allowed' });
-        return;
-    }
-    res.status(404).json({ error: 'Not found' });
-});
-
-export default router;
+export default taskRouter;
 
